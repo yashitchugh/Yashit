@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Neighborhood Environmental Health</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <!-- Tailwind CDN for quick styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Leaflet for map -->
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+  <body class="bg-slate-50 text-slate-800">
+    <div class="max-w-4xl mx-auto p-6">
+      <h1 class="text-2xl font-semibold mb-4">
+        Neighborhood Environmental Health Dashboard
+      </h1>
+
+      <div class="bg-white rounded-lg shadow p-4 mb-4">
+        <label class="block mb-2 font-medium"
+          >Enter address / pincode / city</label
+        >
+        <div class="flex gap-2">
+          <input
+            id="address"
+            class="flex-1 border rounded p-2"
+            placeholder="e.g., Connaught Place, New Delhi or 110001"
+          />
+          <button
+            id="fetchBtn"
+            class="bg-indigo-600 text-white px-4 py-2 rounded"
+          >
+            Get Report
+          </button>
+        </div>
+      </div>
+
+      <div id="report" class="hidden">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+          <div class="bg-white p-4 rounded shadow">
+            <div class="text-sm text-slate-500">Location</div>
+            <div id="locDisplay" class="font-medium mt-1">-</div>
+          </div>
+
+          <div class="bg-white p-4 rounded shadow">
+            <div class="text-sm text-slate-500">Neighborhood Health Score</div>
+            <div id="scoreDisplay" class="font-bold text-3xl mt-1">-</div>
+            <div id="scoreBadge" class="mt-2"></div>
+          </div>
+
+          <div class="bg-white p-4 rounded shadow">
+            <div class="text-sm text-slate-500">Safety suggestion</div>
+            <div id="suggestion" class="mt-1">-</div>
+          </div>
+        </div>
+
+        <div class="grid md:grid-cols-2 gap-4 mb-4">
+          <div class="bg-white p-4 rounded shadow">
+            <h3 class="font-semibold mb-2">Air Quality</h3>
+            <div>PM2.5: <span id="pm25">-</span> µg/m³</div>
+            <div>AQI Index: <span id="aqiIdx">-</span></div>
+            <canvas id="aqiChart" class="mt-4"></canvas>
+          </div>
+
+          <div class="bg-white p-4 rounded shadow">
+            <h3 class="font-semibold mb-2">Noise & Complaints</h3>
+            <div>Noise (dB): <span id="noise">-</span></div>
+            <div>Recent complaints: <span id="complaints">-</span></div>
+            <div id="complaintList" class="mt-2 text-sm text-slate-600"></div>
+          </div>
+        </div>
+
+        <div class="bg-white p-3 rounded shadow mb-4">
+          <div id="map" style="height: 300px"></div>
+        </div>
+      </div>
+
+      <div
+        id="error"
+        class="hidden bg-rose-100 text-rose-800 p-3 rounded"
+      ></div>
+
+      <footer class="mt-6 text-sm text-slate-500">
+        Prototype — data may be mocked for demo purposes.
+      </footer>
+    </div>
+
+    <script>
+      const fetchBtn = document.getElementById("fetchBtn");
+      const addressInput = document.getElementById("address");
+      const reportEl = document.getElementById("report");
+      const errorEl = document.getElementById("error");
+      let map, marker, aqiChart;
+
+      function showError(msg) {
+        errorEl.textContent = msg;
+        errorEl.classList.remove("hidden");
+        reportEl.classList.add("hidden");
+      }
+
+      function clearError() {
+        errorEl.classList.add("hidden");
+        errorEl.textContent = "";
+      }
+
+      fetchBtn.addEventListener("click", async () => {
+        clearError();
+        const addr = addressInput.value.trim();
+        if (!addr) {
+          showError("Please enter an address or pincode.");
+          return;
+        }
+
+        fetchBtn.disabled = true;
+        fetchBtn.textContent = "Loading...";
+
+        try {
+          const res = await fetch("/api/report", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ address: addr }),
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            showError(data.error || "Server error");
+            fetchBtn.disabled = false;
+            fetchBtn.textContent = "Get Report";
+            return;
+          }
+
+          // populate UI
+          document.getElementById("locDisplay").textContent = data.address;
+          document.getElementById("scoreDisplay").textContent = data.score;
+          const badge = getBadgeForScore(data.score);
+          document.getElementById("scoreBadge").innerHTML = badge.html;
+          document.getElementById("suggestion").textContent = badge.suggestion;
+
+          document.getElementById("pm25").textContent = data.pm25 ?? "N/A";
+          document.getElementById("aqiIdx").textContent = data.aqi
+            ? data.aqi.aqi_index
+            : "N/A";
+          document.getElementById("noise").textContent = data.noise_db ?? "N/A";
+          document.getElementById("complaints").textContent = data.complaints;
+
+          // map
+          // map
+          if (!map) {
+            map = L.map("map").setView([data.lat, data.lon], 13);
+            L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+              maxZoom: 19,
+            }).addTo(map);
+          } else {
+            map.setView([data.lat, data.lon], 13);
+          }
+          if (marker) marker.remove();
+          marker = L.marker([data.lat, data.lon]).addTo(map);
+
+          // show report
+          reportEl.classList.remove("hidden");
+
+          // 🔥 important: fix map not appearing
+          setTimeout(() => {
+            map.invalidateSize();
+          }, 300);
+
+          // chart
+          const ctx = document.getElementById("aqiChart").getContext("2d");
+          if (aqiChart) aqiChart.destroy();
+          aqiChart = new Chart(ctx, {
+            type: "line",
+            data: {
+              labels: data.trend.dates,
+              datasets: [
+                {
+                  label: "PM2.5 (µg/m³)",
+                  data: data.trend.pm25,
+                  fill: true,
+                  tension: 0.3,
+                },
+              ],
+            },
+            options: {
+              scales: {
+                y: { beginAtZero: true },
+              },
+            },
+          });
+
+          // complaints list (mock)
+          document.getElementById("complaintList").innerHTML =
+            "<div>Recent complaints are demo/mocked in this prototype.</div>";
+
+          reportEl.classList.remove("hidden");
+        } catch (err) {
+          console.error(err);
+          showError("Network error or server unreachable.");
+        } finally {
+          fetchBtn.disabled = false;
+          fetchBtn.textContent = "Get Report";
+        }
+      });
+
+      function getBadgeForScore(score) {
+        if (score >= 75) {
+          return {
+            html: '<span class="px-2 py-1 bg-green-100 text-green-700 rounded">Good</span>',
+            suggestion:
+              "Air & noise are acceptable. Safe for kids & elderly today.",
+          };
+        } else if (score >= 50) {
+          return {
+            html: '<span class="px-2 py-1 bg-yellow-100 text-yellow-800 rounded">Moderate</span>',
+            suggestion:
+              "Take care — sensitive individuals should limit outdoor activity.",
+          };
+        } else {
+          return {
+            html: '<span class="px-2 py-1 bg-rose-100 text-rose-700 rounded">Poor</span>',
+            suggestion:
+              "Unsafe for prolonged outdoor exposure. Consider masks/avoid exercise outside.",
+          };
+        }
+      }
+    </script>
+  </body>
+</html>

@@ -1,0 +1,20 @@
+{
+  "110001": {
+    "pincode": "110001",
+    "noise_db": 72,
+    "complaints": 8,
+    "sample_latlon": [28.644800, 77.216721]
+  },
+  "560001": {
+    "pincode": "560001",
+    "noise_db": 58,
+    "complaints": 2,
+    "sample_latlon": [12.971599, 77.594566]
+  },
+  "default": {
+    "pincode": "000000",
+    "noise_db": 65,
+    "complaints": 3,
+    "sample_latlon": [28.613939, 77.209021]
+  }
+}
